@@ -10,22 +10,62 @@
         }
       },
       "reauth_confirm": {
-        "title": "Ontech Control",
-        "description": "Sign in with your Ontech Control account.",
+        "title": "Reauthenticate Ontech Control",
+        "description": "Enter the password for {email} to reconnect to Ontech Control.",
         "data": {
-          "email": "Email",
           "password": "Password"
         }
       }
     },
     "error": {
       "invalid_auth": "Invalid email or password.",
-      "cannot_connect": "Unable to connect to Ontech Control.",
-      "wrong_account": "Use the account originally configured."
+      "cannot_connect": "Unable to connect to Ontech Control."
     },
     "abort": {
       "already_configured": "Account already configured.",
       "reauth_successful": "Authentication updated."
+    }
+  },
+  "entity": {
+    "switch": {
+      "relay": {
+        "name": "Relay"
+      }
+    },
+    "sensor": {
+      "internal_temperature": {
+        "name": "Internal temperature"
+      },
+      "external_temperature": {
+        "name": "External temperature"
+      }
+    },
+    "binary_sensor": {
+      "input_a": {
+        "name": "Input A"
+      },
+      "input_b": {
+        "name": "Input B"
+      }
+    }
+  },
+  "device": {
+    "unit": {
+      "name": "{system} unit {number}"
+    }
+  },
+  "exceptions": {
+    "invalid_auth": {
+      "message": "Authentication with Ontech Control has expired. Reauthenticate the integration."
+    },
+    "cannot_connect": {
+      "message": "Unable to connect to Ontech Control. Check your internet connection and try again."
+    },
+    "relay_unavailable": {
+      "message": "The relay is unavailable. Check the device connection and try again."
+    },
+    "command_failed": {
+      "message": "Unable to send the relay command to Ontech Control. Try again after the connection is restored."
     }
   }
 }

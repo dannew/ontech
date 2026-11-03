@@ -1,19 +1,31 @@
+"""Maintain the Ontech connection and coordinate entity updates."""
+
 import asyncio
 import logging
 import time
 from datetime import timedelta
+from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import OntechAuthError, OntechError
+from .api import OntechAuthError, OntechClient, OntechError
+from .const import DOMAIN
 from .model import fresh, has_relay, relay_command
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class OntechCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, entry, client):
+type OntechConfigEntry = ConfigEntry[OntechCoordinator]
+type StatusData = dict[str, dict[str, Any]]
+
+
+class OntechCoordinator(DataUpdateCoordinator[StatusData]):
+    """Receive push status and supervise the connection."""
+
+    def __init__(self, hass: HomeAssistant, entry: OntechConfigEntry, client: OntechClient) -> None:
         super().__init__(
             hass,
             _LOGGER,
@@ -23,14 +35,14 @@ class OntechCoordinator(DataUpdateCoordinator):
         )
         self.client = client
         self.entry = entry
-        self.statuses = {}
-        self.names = {}
-        self.iccids = None
-        self.reader = None
+        self.statuses: StatusData = {}
+        self.names: StatusData = {}
+        self.iccids: set[str] | None = None
+        self.reader: asyncio.Task[None] | None = None
         self.last_received = 0
         self.command_lock = asyncio.Lock()
 
-    def accept(self, message):
+    def accept(self, message: dict[str, Any]) -> None:
         self.last_received = time.monotonic()
         command = message.get("command")
         if command == "get_account_info":
@@ -48,7 +60,7 @@ class OntechCoordinator(DataUpdateCoordinator):
         elif command == "get_names" and isinstance(iccid, str):
             self.names[iccid] = message
 
-    async def _async_update_data(self):
+    async def _async_update_data(self) -> StatusData:
         try:
             if self.reader is not None and not self.reader.done():
                 if time.monotonic() - self.last_received > 150:
@@ -77,25 +89,32 @@ class OntechCoordinator(DataUpdateCoordinator):
             return dict(self.statuses)
         except OntechAuthError as err:
             await self.client.close()
-            raise ConfigEntryAuthFailed("Log in to Ontech again") from err
+            raise ConfigEntryAuthFailed(
+                translation_domain=DOMAIN, translation_key="invalid_auth"
+            ) from err
         except (OntechError, TimeoutError) as err:
             await self.client.close()
-            raise UpdateFailed("Unable to fetch Ontech status") from err
+            raise UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect") from err
 
-    async def _listen(self):
+    async def _listen(self) -> None:
         try:
             while True:
                 message = await self.client.receive()
                 self.accept(message)
                 self.async_set_updated_data(dict(self.statuses))
         except OntechAuthError:
-            self.async_set_update_error(ConfigEntryAuthFailed("Ontech session expired"))
+            self.async_set_update_error(
+                ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="invalid_auth")
+            )
+            self.entry.async_start_reauth(self.hass)
         except OntechError:
-            self.async_set_update_error(UpdateFailed("Ontech connection lost"))
+            self.async_set_update_error(
+                UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")
+            )
         finally:
             await self.client.close()
 
-    async def _stop_reader(self):
+    async def _stop_reader(self) -> None:
         if self.reader is not None:
             self.reader.cancel()
             try:
@@ -105,16 +124,22 @@ class OntechCoordinator(DataUpdateCoordinator):
             self.reader = None
         await self.client.close()
 
-    async def async_close(self):
+    async def async_shutdown(self) -> None:
+        """Cancel refreshes and close account-owned network resources."""
+        await super().async_shutdown()
         await self._stop_reader()
         await self.client.session.close()
 
-    async def set_relay(self, iccid, index, on):
+    async def async_set_relay(self, iccid: str, index: int, on: bool) -> None:
         async with self.command_lock:
             status = self.statuses.get(iccid, {})
             if not self.last_update_success or not fresh(status) or not has_relay(status, index):
-                raise HomeAssistantError("Ontech relay is unavailable")
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="relay_unavailable"
+                )
             try:
                 await self.client.send(relay_command(iccid, index, on))
             except OntechError as err:
-                raise HomeAssistantError("Ontech relay command failed") from err
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN, translation_key="command_failed"
+                ) from err

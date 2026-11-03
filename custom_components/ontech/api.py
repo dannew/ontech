@@ -5,6 +5,7 @@ import json
 import re
 from html import unescape
 from html.parser import HTMLParser
+from typing import Any
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -21,20 +22,20 @@ class OntechAuthError(OntechError):
 
 
 class LoginPage(HTMLParser):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.token = None
+        self.token: str | None = None
         self.login_form = False
 
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == "input" and attrs.get("name") == "_token":
-            self.token = attrs.get("value")
-        if tag == "form" and attrs.get("id") == "loginForm":
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        if tag == "input" and attributes.get("name") == "_token":
+            self.token = attributes.get("value")
+        if tag == "form" and attributes.get("id") == "loginForm":
             self.login_form = True
 
 
-def websocket_url(page):
+def websocket_url(page: str) -> str:
     match = re.search(r"\bWEBSOCKET_URL\s*=\s*([\"'])(.*?)\1", page)
     if not match:
         raise OntechError("The account page contains no WebSocket URL")
@@ -52,13 +53,13 @@ def websocket_url(page):
 
 
 class OntechClient:
-    def __init__(self, session, email, password):
+    def __init__(self, session: aiohttp.ClientSession, email: str, password: str) -> None:
         self.session = session
         self.email = email
         self.password = password
-        self.ws = None
+        self.ws: aiohttp.ClientWebSocketResponse | None = None
 
-    async def _page(self, method, path, **kwargs):
+    async def _page(self, method: str, path: str, **kwargs: Any) -> str | None:
         async with self.session.request(
             method, BASE_URL + path, allow_redirects=False, **kwargs
         ) as response:
@@ -74,7 +75,7 @@ class OntechClient:
                 return None
             return await response.text()
 
-    async def connect(self):
+    async def connect(self) -> None:
         await self.close()
         try:
             async with asyncio.timeout(30):
@@ -108,10 +109,10 @@ class OntechClient:
                     origin=BASE_URL,
                     heartbeat=30,
                 )
-        except (aiohttp.ClientError, TimeoutError):
+        except aiohttp.ClientError, TimeoutError:
             raise OntechError("Unable to connect to Ontech") from None
 
-    async def receive(self):
+    async def receive(self) -> dict[str, Any]:
         if self.ws is None:
             raise OntechError("Not connected")
         try:
@@ -126,18 +127,18 @@ class OntechClient:
             if str(data.get("error", "0")) not in ("0", "None", ""):
                 raise OntechError("Ontech rejected the request")
             return data
-        except (aiohttp.ClientError, ValueError) as err:
-            raise OntechError("Invalid response from Ontech") from err
+        except aiohttp.ClientError, ValueError:
+            raise OntechError("Invalid response from Ontech") from None
 
-    async def send(self, data):
+    async def send(self, data: dict[str, Any]) -> None:
         if self.ws is None or self.ws.closed:
             raise OntechError("Not connected")
         try:
             await self.ws.send_json(data)
-        except (aiohttp.ClientError, ConnectionError) as err:
-            raise OntechError("Unable to send command") from err
+        except aiohttp.ClientError, ConnectionError:
+            raise OntechError("Unable to send command") from None
 
-    async def close(self):
-        if self.ws is not None:
-            await self.ws.close()
-            self.ws = None
+    async def close(self) -> None:
+        ws, self.ws = self.ws, None
+        if ws is not None:
+            await ws.close()

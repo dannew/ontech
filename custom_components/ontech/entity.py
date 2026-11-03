@@ -1,27 +1,42 @@
+"""Shared Ontech entity behavior and discovery."""
+
+from collections.abc import Callable, Iterable
+from typing import Any
+
 from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityDescription
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import BASE_URL, DOMAIN
+from .coordinator import OntechConfigEntry, OntechCoordinator
 from .model import fresh, number, unit_indices, value
 
 
-class OntechEntity(CoordinatorEntity):
+class OntechEntity(CoordinatorEntity[OntechCoordinator]):
+    """An entity belonging to an Ontech master or expansion unit."""
+
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, iccid, index, key, name):
+    def __init__(
+        self,
+        coordinator: OntechCoordinator,
+        iccid: str,
+        index: int,
+        description: EntityDescription,
+    ) -> None:
         super().__init__(coordinator)
         self.iccid = iccid
         self.index = index
-        self._attr_unique_id = f"{iccid}_{index}_{key}"
-        self._attr_name = name
+        self.entity_description = description
+        self._attr_unique_id = f"{iccid}_{index}_{description.key}"
 
     @property
-    def status(self):
+    def status(self) -> dict[str, Any]:
         return self.coordinator.data.get(self.iccid, {})
 
     @property
-    def available(self):
+    def available(self) -> bool:
         return (
             super().available
             and fresh(self.status)
@@ -29,34 +44,48 @@ class OntechEntity(CoordinatorEntity):
         )
 
     @property
-    def device_info(self):
+    def device_info(self) -> DeviceInfo:
         names = self.coordinator.names.get(self.iccid, {})
         labels = names.get("units", [])
         label = (
             labels[self.index] if isinstance(labels, list) and self.index < len(labels) else None
         )
         system = names.get("systemName") or "Ontech"
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, f"{self.iccid}_{self.index}")},
-            name=f"{system} {label or f'Unit {self.index + 1}'}",
             manufacturer="Ontech",
             model=str(value(self.status, "connected", self.index) or "Unknown"),
-            configuration_url="https://app.ontechcontrol.com",
+            configuration_url=BASE_URL,
         )
+        if label:
+            info["name"] = f"{system} {label}"
+        else:
+            info["translation_key"] = "unit"
+            info["translation_placeholders"] = {"system": system, "number": str(self.index + 1)}
+        return info
 
 
-def discover(coordinator, entry, async_add_entities, factory):
-    known = set()
+type EntityFactory = Callable[[OntechCoordinator, str, int, dict[str, Any]], Iterable[OntechEntity]]
+
+
+@callback
+def async_discover(
+    entry: OntechConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+    factory: EntityFactory,
+) -> None:
+    """Discover new entities from initial data and subsequent push updates."""
+    coordinator = entry.runtime_data
+    known: set[str] = set()
 
     @callback
-    def update():
+    def update() -> None:
         entities = []
         for iccid, status in (coordinator.data or {}).items():
             for index in unit_indices(status):
-                for key, entity in factory(coordinator, iccid, index, status):
-                    identity = (iccid, index, key)
-                    if identity not in known:
-                        known.add(identity)
+                for entity in factory(coordinator, iccid, index, status):
+                    if entity.unique_id not in known:
+                        known.add(entity.unique_id)
                         entities.append(entity)
         if entities:
             async_add_entities(entities)

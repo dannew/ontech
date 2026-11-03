@@ -15,8 +15,8 @@ from custom_components.ontech.api import OntechAuthError, OntechClient, OntechEr
 from custom_components.ontech.config_flow import OntechConfigFlow
 from custom_components.ontech.coordinator import OntechCoordinator
 from custom_components.ontech.model import boolean, fresh, has_relay, number, relay_command, value
-from custom_components.ontech.sensor import OntechTemperature
-from custom_components.ontech.switch import OntechRelay
+from custom_components.ontech.sensor import SENSORS, OntechTemperature
+from custom_components.ontech.switch import RELAY, OntechRelay
 
 
 def status():
@@ -218,8 +218,8 @@ async def test_coordinator_entities_reconnect_and_cleanup(client, server, tmp_pa
     try:
         coordinator.data = await coordinator._async_update_data()
         coordinator.last_update_success = True
-        relay = OntechRelay(coordinator, "test-device", 0, "relay", "Relay")
-        temperature = OntechTemperature(coordinator, "test-device", 0, "intTemp", "Temperature")
+        relay = OntechRelay(coordinator, "test-device", 0, RELAY)
+        temperature = OntechTemperature(coordinator, "test-device", 0, SENSORS[0])
         assert relay.available
         assert relay.is_on is False
         assert temperature.native_value == 21.5
@@ -242,7 +242,7 @@ async def test_coordinator_entities_reconnect_and_cleanup(client, server, tmp_pa
         coordinator.data = await coordinator._async_update_data()
         assert len(server[1]) == 2
     finally:
-        await coordinator.async_close()
+        await coordinator.async_shutdown()
     assert client.session.closed
     assert coordinator.reader is None
 
@@ -269,14 +269,17 @@ async def test_config_flow_errors(error, expected, tmp_path):
     client.session.close = AsyncMock()
     flow = OntechConfigFlow()
     flow.hass = HomeAssistant(str(tmp_path))
-    with patch("custom_components.ontech.config_flow.create_client", return_value=client):
+    with (
+        patch("custom_components.ontech.config_flow.create_client", return_value=client),
+        patch.object(flow, "async_set_unique_id", new_callable=AsyncMock),
+        patch.object(flow, "_abort_if_unique_id_configured"),
+    ):
         result = await flow.async_step_user({"email": "test@example.com", "password": "wrong"})
     assert result["errors"]["base"] == expected
     client.session.close.assert_awaited_once()
 
 
 async def test_late_discovery_and_no_duplicates(tmp_path):
-    from custom_components.ontech.const import DOMAIN
     from custom_components.ontech.sensor import async_setup_entry
 
     hass = HomeAssistant(str(tmp_path))
@@ -284,7 +287,7 @@ async def test_late_discovery_and_no_duplicates(tmp_path):
     coordinator = OntechCoordinator(hass, entry, MagicMock())
     coordinator.data = {}
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
-    hass.data[DOMAIN] = {entry.entry_id: coordinator}
+    entry.runtime_data = coordinator
     add = MagicMock()
     await async_setup_entry(hass, entry, add)
     add.assert_not_called()
@@ -315,28 +318,122 @@ async def test_config_flow_success(client, tmp_path):
     assert client.session.closed
 
 
-async def test_reauth_rejects_different_account(tmp_path):
+async def test_reauth_keeps_existing_account(tmp_path):
     flow = OntechConfigFlow()
     flow.hass = HomeAssistant(str(tmp_path))
     original = MagicMock(data={"email": "first@example.com"})
-    with patch.object(flow, "_get_reauth_entry", return_value=original):
-        result = await flow.async_step_reauth_confirm(
-            {"email": "second@example.com", "password": "x"}
-        )
-    assert result["errors"]["base"] == "wrong_account"
+    with (
+        patch.object(flow, "_get_reauth_entry", return_value=original),
+        patch.object(
+            flow, "_validate_credentials", new_callable=AsyncMock, return_value=None
+        ) as validate,
+        patch.object(
+            flow, "async_update_reload_and_abort", return_value={"type": "abort"}
+        ) as reload_entry,
+    ):
+        form = await flow.async_step_reauth({})
+        assert form["description_placeholders"] == {"email": "first@example.com"}
+        assert list(form["data_schema"].schema) == ["password"]
+        await flow.async_step_reauth_confirm({"email": "second@example.com", "password": "new"})
+    expected = {"email": "first@example.com", "password": "new"}
+    validate.assert_awaited_once_with(expected)
+    reload_entry.assert_called_once_with(original, data_updates=expected)
 
 
 async def test_unload_closes_connection(tmp_path):
     from custom_components.ontech import async_unload_entry
-    from custom_components.ontech.const import DOMAIN
 
     hass = HomeAssistant(str(tmp_path))
     hass.config_entries = MagicMock()
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
     entry = entry_mock()
     coordinator = MagicMock()
-    coordinator.async_close = AsyncMock()
-    hass.data[DOMAIN] = {entry.entry_id: coordinator}
+    coordinator.async_shutdown = AsyncMock()
+    entry.runtime_data = coordinator
     assert await async_unload_entry(hass, entry)
-    coordinator.async_close.assert_awaited_once()
-    assert entry.entry_id not in hass.data[DOMAIN]
+    coordinator.async_shutdown.assert_awaited_once()
+
+
+async def test_duplicate_account_does_not_contact_service(tmp_path):
+    from homeassistant.data_entry_flow import AbortFlow
+
+    flow = OntechConfigFlow()
+    flow.hass = HomeAssistant(str(tmp_path))
+    with (
+        patch.object(flow, "async_set_unique_id", new_callable=AsyncMock),
+        patch.object(
+            flow, "_abort_if_unique_id_configured", side_effect=AbortFlow("already_configured")
+        ),
+        patch.object(flow, "_validate_credentials", new_callable=AsyncMock) as validate,
+        pytest.raises(AbortFlow),
+    ):
+        await flow.async_step_user({"email": "same@example.com", "password": "secret"})
+    validate.assert_not_awaited()
+
+
+async def test_push_auth_failure_starts_reauth(tmp_path):
+    client = MagicMock()
+    client.receive = AsyncMock(side_effect=OntechAuthError())
+    client.close = AsyncMock()
+    entry = entry_mock()
+    hass = HomeAssistant(str(tmp_path))
+    coordinator = OntechCoordinator(hass, entry, client)
+    await coordinator._listen()
+    assert not coordinator.last_update_success
+    entry.async_start_reauth.assert_called_once_with(hass)
+    client.close.assert_awaited_once()
+
+
+async def test_failed_platform_setup_closes_resources(tmp_path):
+    from custom_components.ontech import async_setup_entry
+
+    hass = HomeAssistant(str(tmp_path))
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_forward_entry_setups = AsyncMock(side_effect=RuntimeError("failure"))
+    coordinator = MagicMock()
+    coordinator.async_config_entry_first_refresh = AsyncMock()
+    coordinator.async_shutdown = AsyncMock()
+    with (
+        patch("custom_components.ontech.create_client"),
+        patch("custom_components.ontech.OntechCoordinator", return_value=coordinator),
+        pytest.raises(RuntimeError),
+    ):
+        await async_setup_entry(hass, entry_mock())
+    coordinator.async_shutdown.assert_awaited_once()
+
+
+async def test_failed_unload_keeps_resources(tmp_path):
+    from custom_components.ontech import async_unload_entry
+
+    hass = HomeAssistant(str(tmp_path))
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=False)
+    entry = entry_mock()
+    entry.runtime_data.async_shutdown = AsyncMock()
+    assert not await async_unload_entry(hass, entry)
+    entry.runtime_data.async_shutdown.assert_not_awaited()
+
+
+async def test_diagnostics_do_not_export_account_or_device_identifiers(tmp_path):
+    import json
+
+    from custom_components.ontech.diagnostics import async_get_config_entry_diagnostics
+
+    hass = HomeAssistant(str(tmp_path))
+    entry = entry_mock()
+    entry.data = {"email": "private@example.com", "password": "private-password"}
+    coordinator = OntechCoordinator(hass, entry, MagicMock())
+    entry.runtime_data = coordinator
+    coordinator.data = {"private-iccid": {**status(), "email": "private@example.com"}}
+    coordinator.names = {"private-iccid": {"systemName": "private-home"}}
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert result["systems"][0]["models"] == [9060, 9012]
+    encoded = json.dumps(result)
+    for secret in (
+        "private@example.com",
+        "private-password",
+        "private-iccid",
+        "private-home",
+        "test-device",
+    ):
+        assert secret not in encoded

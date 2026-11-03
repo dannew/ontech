@@ -1,48 +1,97 @@
-# Ontech Control för Home Assistant
+# Ontech Control for Home Assistant
 
-En fristående custom integration för konton på https://app.ontechcontrol.com.
-Första versionen innehåller reläbrytare, interna/externa temperaturgivare och binära ingångar A/B. Enheter upptäcks automatiskt även när ny status anländer efter starten.
+![Ontech Control community integration icon](custom_components/ontech/brand/icon.png)
 
-**Status:** experimentell. Protokollet har kartlagts från Ontechs publika webbklient och testas med en simulerad server. Verklig inloggning och fysisk styrning är ännu inte verifierade. Se [BUGS.md](BUGS.md).
+A community integration for [Ontech Control](https://app.ontechcontrol.com). Control relays and monitor temperatures and binary inputs through your existing Ontech account.
+
+**Experimental:** account login and physical device control still need verification with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
+
+## Requirements
+
+- Home Assistant Core **2026.10.4 or newer**.
+- An Ontech Control account with devices accessible in the web application.
+- Internet access from Home Assistant to Ontech Control. This is a cloud integration; it does not communicate directly with the devices.
+- No additional Python dependencies beyond Home Assistant itself.
 
 ## Installation
 
-1. Kopiera mappen `custom_components/ontech` till `<config>/custom_components/ontech` på din Home Assistant-installation.
-2. Starta om Home Assistant.
-3. Öppna **Inställningar → Enheter och tjänster → Lägg till integration → Ontech Control**.
-4. Ange samma e-postadress och lösenord som i Ontech Control.
+### Marketplace (Home Assistant 2026.11 and later)
 
-Pythonbibliotek utöver dem som medföljer Home Assistant behövs inte. Använd en aktuell Home Assistant Core-version. Verifierad med 26 automatiska tester mot Home Assistant Core 2026.10.4 på Python 3.14.4; Ruff-kontrollen passerar. Testerna använder en lokal simulerad Ontech-server, inte ett riktigt konto.
+This integration is **not yet released or included in the catalog**. After hardware testing and validation, add `https://github.com/dannew/ontech` as a custom repository with type **Integration** in **Settings → Marketplace**, then install **Ontech Control** and restart Home Assistant.
 
-Inloggningsuppgifterna sparas i Home Assistants vanliga config entry-lagring. Inga uppgifter ska läggas i detta repository. Ingen konfiguration i `configuration.yaml` behövs.
+### HACS (Home Assistant 2026.10)
 
-## Beteende
+After hardware testing and validation, add `https://github.com/dannew/ontech` under **HACS → Custom repositories**, select **Integration**, download **Ontech Control**, and restart Home Assistant.
 
-- Separat cookie-session per konto; CSRF-inloggning och krypterad WebSocket till adressen på kontosidan.
-- Pushuppdateringar med anslutningskontroll varje minut och återanslutning vid avbrott. Ingen aktiv SMS-pollning av hårdvaran.
-- Reläet visar rapporterat tillstånd, inte ett antaget tillstånd efter ett kommando.
-- Enheter markeras som otillgängliga vid frånkoppling eller när senaste status/temperatur är mer än 30 minuter gammal, enligt webbklientens gräns.
-- `nc`, `na`, tomma och ogiltiga temperaturer blir okända värden, aldrig 0 °C.
-- Reläer aktiveras för identifierade modeller 9010, 9015, 9025, 9035, 9040, 9060 och 9065. Detta är en protokollbaserad lista, inte en lista över fysiskt testade modeller. 9012 och huvudenheter i garageläge får ingen reläbrytare.
-- Råa ingångar exponeras utan antaganden om de representerar öppna dörrar, rörelse eller andra larm.
+The Marketplace uses the same repository layout, catalog, and `hacs.json` as HACS. See the [Marketplace documentation](https://contributors.home-assistant.io/marketplace/).
 
-För att ta bort integrationen: ta bort kontoposten under Enheter och tjänster. För full avinstallation tar du därefter bort `custom_components/ontech` och startar om.
+### Manual installation
 
-## Verifiera på din installation
+1. Copy `custom_components/ontech` into `<config>/custom_components/ontech`.
+2. Restart Home Assistant.
+3. Continue with configuration below.
 
-Kontrollera först att enhetsnamn och temperaturer stämmer med Ontech-appen. Prova sedan ett relä på en last där till/frånslag är lämpligt och kontrollera att det rapporterade tillståndet uppdateras. Kontrollera även återanslutning efter omstart. Rapportera modell, Home Assistant-version och feltext vid problem; dela inte lösenord, cookies, ICCID eller WebSocket-URL:er som kan innehålla sessionstoken.
+### Configuration
 
-## Utveckling
+Open **Settings → Devices & services → Add integration → Ontech Control**.
+
+| Field | Description |
+| --- | --- |
+| Email | The email address used to sign in to Ontech Control. |
+| Password | The password for that account. |
+
+Credentials are stored in Home Assistant's standard config entry storage. Do not put them in this repository or in `configuration.yaml`. If authentication expires, Home Assistant prompts you to reauthenticate the existing account; only the password is requested.
+
+English is the source and fallback language. Swedish translations are included for setup, entities, default device names, and errors. Home Assistant selects the appropriate translation; names you configured in Ontech are retained.
+
+## Supported entities
+
+| Entity | Function |
+| --- | --- |
+| Relay switch | Turn a supported relay on or off. |
+| Internal temperature | Read the built-in temperature sensor, when reported. |
+| External temperature | Read an attached temperature sensor, when reported. |
+| Input A / Input B | Read the raw binary inputs, when reported. |
+
+The relay model allowlist is **9010, 9015, 9025, 9035, 9040, 9060, and 9065**, based on the web protocol. It is not a list of hardware-tested models. Model 9012 and master units configured in garage mode do not get relay switches.
+
+Thermostats, heat pumps, scheduling, alarm acknowledgement, and garage pulses are not implemented. Inputs are not assigned a door, motion, or alarm device class because their meaning depends on your wiring.
+
+## Updates and availability
+
+The integration keeps an authenticated WebSocket open and discovers units as their status arrives. A supervisor runs approximately once a minute when no push data is arriving, checks connection health, and reconnects after a failure. The server's cached status is requested on connection; there is no periodic SMS request to the hardware.
+
+Relays keep their last reported state until Ontech sends an update. Sending a command is not a delivery acknowledgement. Devices become unavailable when the connection fails, the unit disconnects, or both the most recent status and temperature report are older than 30 minutes. Invalid temperatures, including `nc`, `na`, and empty values, become unknown rather than zero.
+
+Use the standard `switch.turn_on` and `switch.turn_off` actions in automations. Temperature sensors support numeric-state triggers, for example a low-temperature notification. Choose entity IDs from your own installation in the automation editor.
+
+## Troubleshooting and diagnostics
+
+1. Confirm that login works in the Ontech web application and that the devices are current there.
+2. Check internet connectivity if Home Assistant reports a connection error. Transient failures are retried automatically.
+3. Complete the reauthentication flow if prompted. Reauthenticate the existing entry rather than adding a duplicate account.
+4. After installation or an upgrade, restart Home Assistant. Refresh the browser if an old label is still displayed.
+5. Download diagnostics from the integration's menu when reporting an issue. The export contains only connection health, freshness flags, and model numbers. It excludes credentials, cookies, WebSocket URLs, ICCIDs, names, and raw account payloads.
+
+For hardware verification, compare device names and temperatures with Ontech, test an appropriate relay load, check the reported state after switching, and test reconnection after a restart. Include your model and Home Assistant version in bug reports. Never share passwords, cookies, ICCIDs, or session-bearing URLs.
+
+## Removal
+
+Delete the account entry under **Settings → Devices & services**. To uninstall the files as well, remove the integration in Marketplace/HACS, or delete `custom_components/ontech` after a manual installation, then restart Home Assistant.
+
+## Development and publication
 
 ```sh
-uv venv .venv
-uv pip install --python .venv/bin/python homeassistant pytest pytest-asyncio ruff
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python homeassistant==2026.10.4 -r requirements-test.txt
 .venv/bin/python -m pytest
 .venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/python scripts/check_release.py
 ```
 
-## Protokollunderlag
+Locally verified: 38 tests pass on both Home Assistant 2026.10.4 and 2026.11.0b3. CI runs the same version matrix, plus Ruff, hassfest, and HACS validation. Repository metadata targets `dannew/ontech`, maintained by `@dannew`. Publication requires hardware testing, validation, and explicit release approval. Passing local tests is not catalog approval. See [RELEASING.md](RELEASING.md) for the remaining publishing steps.
 
-Integrationen använder samma meddelanden som den [officiella webbklienten](https://app.ontechcontrol.com/js/all.js): `get_account_info`, `get_names`, `get_status`, `status`, `ping` och `sms`. Ett reläkommando är exempelvis `1*1#` (på, enhet 1) eller `0*1#` (av). `units` innehåller parallella arrayer med nollbaserade index, medan styrkommandon använder enhetsnummer 1–8. Ingen klientkod från Ontech distribueras här.
+The private protocol was mapped from [Ontech's public web client](https://app.ontechcontrol.com/js/all.js). No Ontech JavaScript is distributed here. It uses `get_account_info`, `get_names`, `get_status`, `status`, `ping`, and `sms`; a relay command such as `1*1#` targets unit 1. The protocol may change without notice.
 
-Home Assistants [config flows](https://developers.home-assistant.io/docs/config_entries_config_flow_handler/) och [DataUpdateCoordinator](https://developers.home-assistant.io/docs/integration_fetching_data/) används för konfigurering och entitetsuppdateringar. Integrationen är inte en officiell Ontech-produkt och det privata webbprotokollet kan ändras.
+Licensed under the [MIT license](LICENSE). The bundled relay icon is an original community-integration graphic, not an Ontech or Home Assistant logo.

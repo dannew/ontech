@@ -10,22 +10,62 @@
         }
       },
       "reauth_confirm": {
-        "title": "Ontech Control",
-        "description": "Logga in med ditt konto på Ontech Control.",
+        "title": "Autentisera Ontech Control igen",
+        "description": "Ange lösenordet för {email} för att återansluta till Ontech Control.",
         "data": {
-          "email": "E-post",
           "password": "Lösenord"
         }
       }
     },
     "error": {
       "invalid_auth": "Felaktig e-post eller lösenord.",
-      "cannot_connect": "Kan inte ansluta till Ontech Control.",
-      "wrong_account": "Använd samma konto som tidigare."
+      "cannot_connect": "Kan inte ansluta till Ontech Control."
     },
     "abort": {
       "already_configured": "Kontot är redan konfigurerat.",
       "reauth_successful": "Inloggningen uppdaterades."
+    }
+  },
+  "entity": {
+    "switch": {
+      "relay": {
+        "name": "Relä"
+      }
+    },
+    "sensor": {
+      "internal_temperature": {
+        "name": "Intern temperatur"
+      },
+      "external_temperature": {
+        "name": "Extern temperatur"
+      }
+    },
+    "binary_sensor": {
+      "input_a": {
+        "name": "Ingång A"
+      },
+      "input_b": {
+        "name": "Ingång B"
+      }
+    }
+  },
+  "device": {
+    "unit": {
+      "name": "{system} enhet {number}"
+    }
+  },
+  "exceptions": {
+    "invalid_auth": {
+      "message": "Inloggningen till Ontech Control har upphört att gälla. Autentisera integrationen igen."
+    },
+    "cannot_connect": {
+      "message": "Det gick inte att ansluta till Ontech Control. Kontrollera internetanslutningen och försök igen."
+    },
+    "relay_unavailable": {
+      "message": "Reläet är inte tillgängligt. Kontrollera enhetens anslutning och försök igen."
+    },
+    "command_failed": {
+      "message": "Det gick inte att skicka reläkommandot till Ontech Control. Försök igen när anslutningen har återställts."
     }
   }
 }

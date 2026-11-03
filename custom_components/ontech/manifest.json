@@ -1,11 +1,18 @@
 {
   "domain": "ontech",
   "name": "Ontech Control",
-  "version": "0.1.0",
+  "categories": [
+    "plugs_switches",
+    "sensors.temperature_humidity"
+  ],
+  "codeowners": [
+    "@dannew"
+  ],
   "config_flow": true,
-  "documentation": "https://app.ontechcontrol.com",
+  "documentation": "https://github.com/dannew/ontech",
+  "integration_type": "hub",
   "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/dannew/ontech/issues",
   "requirements": [],
-  "codeowners": [],
-  "integration_type": "hub"
+  "version": "0.2.0"
 }
