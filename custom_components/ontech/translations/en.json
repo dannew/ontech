@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ontech Control",
+        "description": "Sign in with your Ontech Control account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ontech Control",
+        "description": "Sign in with your Ontech Control account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password.",
+      "cannot_connect": "Unable to connect to Ontech Control.",
+      "wrong_account": "Use the account originally configured."
+    },
+    "abort": {
+      "already_configured": "Account already configured.",
+      "reauth_successful": "Authentication updated."
+    }
+  }
+}

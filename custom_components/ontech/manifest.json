@@ -1,0 +1,11 @@
+{
+  "domain": "ontech",
+  "name": "Ontech Control",
+  "version": "0.1.0",
+  "config_flow": true,
+  "documentation": "https://app.ontechcontrol.com",
+  "iot_class": "cloud_push",
+  "requirements": [],
+  "codeowners": [],
+  "integration_type": "hub"
+}

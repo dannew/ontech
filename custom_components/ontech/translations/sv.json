@@ -1,0 +1,31 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ontech Control",
+        "description": "Logga in med ditt konto på Ontech Control.",
+        "data": {
+          "email": "E-post",
+          "password": "Lösenord"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Ontech Control",
+        "description": "Logga in med ditt konto på Ontech Control.",
+        "data": {
+          "email": "E-post",
+          "password": "Lösenord"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Felaktig e-post eller lösenord.",
+      "cannot_connect": "Kan inte ansluta till Ontech Control.",
+      "wrong_account": "Använd samma konto som tidigare."
+    },
+    "abort": {
+      "already_configured": "Kontot är redan konfigurerat.",
+      "reauth_successful": "Inloggningen uppdaterades."
+    }
+  }
+}
