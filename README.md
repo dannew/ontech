@@ -4,7 +4,7 @@
 
 A community integration for [Ontech Control](https://app.ontechcontrol.com). Control relays and monitor temperatures and binary inputs through your existing Ontech account.
 
-**Experimental:** a user confirmed relay on/off control and temperature readings with a real account on 2026-11-03. The device model and Home Assistant version have not yet been recorded. Binary inputs, restart/reconnection, stale-data handling, and automations remain unverified with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
+**Experimental:** a user confirmed relay on/off control and temperature readings with a real account on 2026-11-03, using Home Assistant Core 2026.10.4 with Ontech 9040 and 9015 hardware. Binary inputs, restart/reconnection, stale-data handling, and automations remain unverified with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
 
 ## Requirements
 
@@ -53,7 +53,7 @@ English is the source and fallback language. Swedish translations are included f
 | External temperature | Read an attached temperature sensor, when reported. |
 | Input A / Input B | Read the raw binary inputs, when reported. |
 
-The relay model allowlist is **9010, 9015, 9025, 9035, 9040, 9060, and 9065**, based on the web protocol. It is not a list of hardware-tested models. Model 9012 and master units configured in garage mode do not get relay switches.
+The relay model allowlist is **9010, 9015, 9025, 9035, 9040, 9060, and 9065**, based on the web protocol. Real-account testing has covered a setup with 9040 and 9015 hardware for relay on/off control and temperature readings; other models and functions remain unverified. Model 9012 and master units configured in garage mode do not get relay switches.
 
 Thermostats, heat pumps, scheduling, alarm acknowledgement, and garage pulses are not implemented. Inputs are not assigned a door, motion, or alarm device class because their meaning depends on your wiring.
 
