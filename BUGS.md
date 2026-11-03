@@ -2,7 +2,7 @@
 
 | ID | Type | Status | Description |
 | --- | --- | --- | --- |
-| BUG-001 | Verification | Open | Login and physical relay control need verification with a real account. The protocol was mapped from the public web client; automated tests use a simulated server. |
+| BUG-001 | Verification | Partially verified | User confirmed physical relay on/off control and temperature readings with a real account on 2026-11-03. Model and Home Assistant version have not been recorded. Binary inputs, restart/reconnection, stale-data handling, and automations remain unverified. Advanced alarm entities are not implemented (see BUG-002). |
 | BUG-002 | Feature | Open | Thermostat, heat pump, scheduling, alarm acknowledgement, and garage pulse entities are not implemented. |
 | BUG-003 | Limitation | Open | Sending a relay command provides no separate delivery acknowledgement. Entity state changes only after a server status update. |
 | BUG-004 | Publication | Open | Metadata targets dannew/ontech with @dannew as maintainer. Publication is on hold until real-account hardware testing, validation, and owner approval. Catalog inclusion also requires external review. |

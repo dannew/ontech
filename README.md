@@ -4,7 +4,7 @@
 
 A community integration for [Ontech Control](https://app.ontechcontrol.com). Control relays and monitor temperatures and binary inputs through your existing Ontech account.
 
-**Experimental:** account login and physical device control still need verification with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
+**Experimental:** a user confirmed relay on/off control and temperature readings with a real account on 2026-11-03. The device model and Home Assistant version have not yet been recorded. Binary inputs, restart/reconnection, stale-data handling, and automations remain unverified with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
 
 ## Requirements
 
