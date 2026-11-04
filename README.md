@@ -90,7 +90,7 @@ uv pip install --python .venv/bin/python homeassistant==2026.10.4 -r requirement
 .venv/bin/python scripts/check_release.py
 ```
 
-Locally verified: 38 tests pass on both Home Assistant 2026.10.4 and 2026.11.0b3. CI runs the same version matrix, plus Ruff, hassfest, and HACS validation. Repository metadata targets `dannew/ontech`, maintained by `@dannew`. Publication requires hardware testing, validation, and explicit release approval. Passing local tests is not catalog approval. See [RELEASING.md](RELEASING.md) for the remaining publishing steps.
+Locally verified: 40 tests pass on both Home Assistant 2026.10.4 and 2026.11.0b3. CI runs the same version matrix, plus Ruff, hassfest, and HACS validation. Repository metadata targets `dannew/ontech`, maintained by `@dannew`. Publication requires hardware testing, validation, and explicit release approval. Passing local tests is not catalog approval. See [RELEASING.md](RELEASING.md) for the remaining publishing steps.
 
 The private protocol was mapped from [Ontech's public web client](https://app.ontechcontrol.com/js/all.js). No Ontech JavaScript is distributed here. It uses `get_account_info`, `get_names`, `get_status`, `status`, `ping`, and `sms`; a relay command such as `1*1#` targets unit 1. The protocol may change without notice.
 
