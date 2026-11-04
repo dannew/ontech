@@ -72,6 +72,8 @@ class OntechClient:
                 target = urlsplit(location)
                 if target.netloc and target.netloc != urlsplit(BASE_URL).netloc:
                     raise OntechError("Unexpected login redirect")
+                if target.path.rstrip("/") == "/login":
+                    raise OntechAuthError("Login required")
                 return None
             return await response.text()
 

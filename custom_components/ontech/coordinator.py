@@ -73,11 +73,7 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
             self.iccids = None
             await self.client.connect()
             async with asyncio.timeout(30):
-                while (
-                    self.iccids is None
-                    or not self.iccids.issubset(self.statuses)
-                    or not self.iccids.issubset(self.names)
-                ):
+                while self.iccids is None or not self.iccids.issubset(self.statuses):
                     message = await self.client.receive()
                     self.accept(message)
                     if message.get("command") == "get_account_info":
@@ -104,9 +100,8 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
                 self.async_set_updated_data(dict(self.statuses))
         except OntechAuthError:
             self.async_set_update_error(
-                ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="invalid_auth")
+                UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")
             )
-            self.entry.async_start_reauth(self.hass)
         except OntechError:
             self.async_set_update_error(
                 UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")

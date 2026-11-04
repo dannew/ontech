@@ -40,7 +40,7 @@ Open **Settings → Devices & services → Add integration → Ontech Control**.
 | Email | The email address used to sign in to Ontech Control. |
 | Password | The password for that account. |
 
-Credentials are stored in Home Assistant's standard config entry storage. Do not put them in this repository or in `configuration.yaml`. If authentication expires, Home Assistant prompts you to reauthenticate the existing account; only the password is requested.
+Credentials are stored in Home Assistant's standard config entry storage. Do not put them in this repository or in `configuration.yaml`. Expired WebSocket sessions are reconnected automatically. If login credentials are rejected, Home Assistant prompts you to reauthenticate the existing account; only the password is requested.
 
 English is the source and fallback language. Swedish translations are included for setup, entities, default device names, and errors. Home Assistant selects the appropriate translation; names you configured in Ontech are retained.
 

@@ -107,7 +107,7 @@ async def server():
         assert data["_token"] == "csrf"
         assert data["fromLocation"] == "local"
         if data["password"] != "correct":
-            return web.Response(text='<form id="loginForm"></form>')
+            raise web.HTTPFound("/login")
         response = web.HTTPFound("/")
         response.set_cookie("account", "yes")
         raise response
@@ -371,7 +371,7 @@ async def test_duplicate_account_does_not_contact_service(tmp_path):
     validate.assert_not_awaited()
 
 
-async def test_push_auth_failure_starts_reauth(tmp_path):
+async def test_push_auth_failure_does_not_start_reauth(tmp_path):
     client = MagicMock()
     client.receive = AsyncMock(side_effect=OntechAuthError())
     client.close = AsyncMock()
@@ -380,7 +380,7 @@ async def test_push_auth_failure_starts_reauth(tmp_path):
     coordinator = OntechCoordinator(hass, entry, client)
     await coordinator._listen()
     assert not coordinator.last_update_success
-    entry.async_start_reauth.assert_called_once_with(hass)
+    entry.async_start_reauth.assert_not_called()
     client.close.assert_awaited_once()
 
 
@@ -437,3 +437,28 @@ async def test_diagnostics_do_not_export_account_or_device_identifiers(tmp_path)
         "test-device",
     ):
         assert secret not in encoded
+
+
+def test_naive_utc_timestamps():
+    now = datetime(2026, 11, 4, 10, 0, tzinfo=UTC)
+    assert fresh({"statusUTC": "2026-11-04 09:59:00"}, now)
+    assert not fresh({"statusUTC": "2026-11-04 09:00:00"}, now)
+
+
+async def test_initial_sync_without_names(client, tmp_path):
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
+    original = client.receive
+
+    async def receive_without_names():
+        message = await original()
+        while message.get("command") == "get_names":
+            message = await original()
+        return message
+
+    with patch.object(client, "receive", side_effect=receive_without_names):
+        try:
+            data = await coordinator._async_update_data()
+            assert "test-device" in data
+            assert not coordinator.names
+        finally:
+            await coordinator.async_shutdown()

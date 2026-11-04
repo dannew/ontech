@@ -40,3 +40,7 @@ After validation and a full release, the owner or a major contributor can submit
 - [hacs.json](https://contributors.home-assistant.io/marketplace/reference/hacs-json/)
 - [Catalog submission](https://contributors.home-assistant.io/marketplace/guides/catalog/)
 - [Custom integration translations](https://contributors.home-assistant.io/core/integrations/translations/#custom-integrations)
+
+## Python compatibility
+
+The source targets Python 3.14, including PEP 758 exception syntax. Do not lower the Home Assistant version floor to a release using an older Python runtime without adapting the syntax and validating the full test matrix.
