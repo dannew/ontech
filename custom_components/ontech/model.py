@@ -31,8 +31,9 @@ def fresh(status: dict[str, Any], now: datetime | None = None) -> bool:
     for field in ("statusUTC", "temperaturesUTC"):
         try:
             date = datetime.fromisoformat(status[field])
-            if date.tzinfo is not None:
-                dates.append(date)
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=UTC)
+            dates.append(date)
         except KeyError, TypeError, ValueError, AttributeError:
             pass
     if not dates:

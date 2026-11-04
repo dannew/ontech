@@ -4,7 +4,7 @@
 
 A community integration for [Ontech Control](https://app.ontechcontrol.com). Control relays and monitor temperatures and binary inputs through your existing Ontech account.
 
-**Experimental:** account login and physical device control still need verification with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
+**Experimental:** a user confirmed relay on/off control and temperature readings with a real account on 2026-11-03, using Home Assistant Core 2026.10.4 with Ontech 9040 and 9015 hardware. Binary inputs, restart/reconnection, stale-data handling, and automations remain unverified with real hardware. Automated tests use a simulated Ontech server. This integration is not affiliated with or supported by Ontech. Known limitations and feature requests are tracked in [BUGS.md](BUGS.md).
 
 ## Requirements
 
@@ -40,7 +40,7 @@ Open **Settings → Devices & services → Add integration → Ontech Control**.
 | Email | The email address used to sign in to Ontech Control. |
 | Password | The password for that account. |
 
-Credentials are stored in Home Assistant's standard config entry storage. Do not put them in this repository or in `configuration.yaml`. If authentication expires, Home Assistant prompts you to reauthenticate the existing account; only the password is requested.
+Credentials are stored in Home Assistant's standard config entry storage. Do not put them in this repository or in `configuration.yaml`. Expired WebSocket sessions are reconnected automatically. If login credentials are rejected, Home Assistant prompts you to reauthenticate the existing account; only the password is requested.
 
 English is the source and fallback language. Swedish translations are included for setup, entities, default device names, and errors. Home Assistant selects the appropriate translation; names you configured in Ontech are retained.
 
@@ -53,7 +53,7 @@ English is the source and fallback language. Swedish translations are included f
 | External temperature | Read an attached temperature sensor, when reported. |
 | Input A / Input B | Read the raw binary inputs, when reported. |
 
-The relay model allowlist is **9010, 9015, 9025, 9035, 9040, 9060, and 9065**, based on the web protocol. It is not a list of hardware-tested models. Model 9012 and master units configured in garage mode do not get relay switches.
+The relay model allowlist is **9010, 9015, 9025, 9035, 9040, 9060, and 9065**, based on the web protocol. Real-account testing has covered a setup with 9040 and 9015 hardware for relay on/off control and temperature readings; other models and functions remain unverified. Model 9012 and master units configured in garage mode do not get relay switches.
 
 Thermostats, heat pumps, scheduling, alarm acknowledgement, and garage pulses are not implemented. Inputs are not assigned a door, motion, or alarm device class because their meaning depends on your wiring.
 
