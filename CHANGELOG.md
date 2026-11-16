@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 - Recover from expired WebSocket sessions during reconnect without stopping retries or requiring a manual reload.
 - Supervise connection health independently of push updates; join failed readers before retrying and cancel pending checks on unload.
@@ -8,6 +8,8 @@
 - Detach account sessions without closing Home Assistant's shared connector, including during config flows.
 - Add regression tests for repeated failed reconnects, eventual entity recovery, stale connections, session expiry, cancellation, and shared-connector ownership.
 - CI now validates Home Assistant 2026.11.1 alongside the minimum supported version.
+
+Validation: 51 tests pass on Home Assistant 2026.10.4 and 2026.11.1. Real-hardware reconnection testing remains pending. After updating, restart Home Assistant; existing entities and account configuration are retained.
 
 ## 0.2.1
 
