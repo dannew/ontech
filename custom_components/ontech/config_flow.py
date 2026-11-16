@@ -38,7 +38,7 @@ class OntechConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return "cannot_connect"
         finally:
             await client.close()
-            await client.session.close()
+            client.session.detach()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Create a config entry after verifying the account."""

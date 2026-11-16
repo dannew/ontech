@@ -15,8 +15,11 @@ from .coordinator import OntechConfigEntry, OntechCoordinator
 
 def create_client(hass: HomeAssistant, data: Mapping[str, Any]) -> OntechClient:
     """Create an account-isolated session with Home Assistant's SSL settings."""
+    # The session is private, but its connector belongs to Home Assistant.
     session = async_create_clientsession(
         hass,
+        auto_cleanup=False,
+        connector_owner=False,
         cookie_jar=aiohttp.CookieJar(),
         timeout=aiohttp.ClientTimeout(total=30),
     )

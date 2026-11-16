@@ -59,7 +59,7 @@ Thermostats, heat pumps, scheduling, alarm acknowledgement, and garage pulses ar
 
 ## Updates and availability
 
-The integration keeps an authenticated WebSocket open and discovers units as their status arrives. A supervisor runs approximately once a minute when no push data is arriving, checks connection health, and reconnects after a failure. The server's cached status is requested on connection; there is no periodic SMS request to the hardware.
+The integration keeps an authenticated WebSocket open and discovers units as their status arrives. An independent supervisor checks connection health every minute, even while push data is arriving, and retries transient connection failures until recovery. It closes and joins the previous reader before opening a replacement connection. WebSocket session expiry triggers a fresh HTTP login; only rejected HTTP credentials require reauthentication. Account cookie jars remain isolated and cleanup leaves Home Assistant's shared connector open. The server's cached status is requested on connection; there is no periodic SMS request to the hardware.
 
 Relays keep their last reported state until Ontech sends an update. Sending a command is not a delivery acknowledgement. Devices become unavailable when the connection fails, the unit disconnects, or both the most recent status and temperature report are older than 30 minutes. Invalid temperatures, including `nc`, `na`, and empty values, become unknown rather than zero.
 

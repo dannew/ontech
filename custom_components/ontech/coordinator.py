@@ -3,12 +3,13 @@
 import asyncio
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OntechAuthError, OntechClient, OntechError
@@ -31,7 +32,6 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
             _LOGGER,
             name="Ontech Control",
             config_entry=entry,
-            update_interval=timedelta(seconds=60),
         )
         self.client = client
         self.entry = entry
@@ -41,6 +41,10 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
         self.reader: asyncio.Task[None] | None = None
         self.last_received = 0
         self.command_lock = asyncio.Lock()
+        self._unsub_watchdog = None
+        self._reauth_required = False
+        self._was_connected = False
+        self._check_task: asyncio.Task[None] | None = None
 
     def accept(self, message: dict[str, Any]) -> None:
         self.last_received = time.monotonic()
@@ -60,6 +64,17 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
         elif command == "get_names" and isinstance(iccid, str):
             self.names[iccid] = message
 
+    @callback
+    def _watchdog(self, now: datetime) -> None:
+        if (
+            not self._shutdown_requested
+            and not self._reauth_required
+            and (self._check_task is None or self._check_task.done())
+        ):
+            self._check_task = self.entry.async_create_background_task(
+                self.hass, self.async_refresh(), "Ontech connection check"
+            )
+
     async def _async_update_data(self) -> StatusData:
         try:
             if self.reader is not None and not self.reader.done():
@@ -68,6 +83,8 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
                 else:
                     await self.client.send({"command": "ping", "message": int(time.time())})
                     return dict(self.statuses)
+            await self._stop_reader()
+            _LOGGER.debug("Connecting to Ontech Control")
             self.statuses = {}
             self.names = {}
             self.iccids = None
@@ -79,17 +96,28 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
                     if message.get("command") == "get_account_info":
                         for iccid in self.iccids:
                             await self.client.send({"command": "get_status", "iccid": iccid})
+            if self._unsub_watchdog is None:
+                self._unsub_watchdog = async_track_time_interval(
+                    self.hass, self._watchdog, timedelta(seconds=60)
+                )
+            if self._was_connected:
+                _LOGGER.info("Ontech Control connection restored")
+            self._was_connected = True
             self.reader = self.entry.async_create_background_task(
                 self.hass, self._listen(), "Ontech WebSocket"
             )
             return dict(self.statuses)
         except OntechAuthError as err:
-            await self.client.close()
+            await self._stop_reader()
+            self._reauth_required = True
             raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN, translation_key="invalid_auth"
             ) from err
         except (OntechError, TimeoutError) as err:
-            await self.client.close()
+            await self._stop_reader()
+            _LOGGER.debug(
+                "Ontech connection attempt failed; retrying in 60 seconds (%s)", type(err).__name__
+            )
             raise UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect") from err
 
     async def _listen(self) -> None:
@@ -98,11 +126,18 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
                 message = await self.client.receive()
                 self.accept(message)
                 self.async_set_updated_data(dict(self.statuses))
-        except OntechAuthError:
+        except (OntechError, TimeoutError, ConnectionError) as err:
+            _LOGGER.debug(
+                "Ontech reader disconnected (%s); automatic retry scheduled", type(err).__name__
+            )
             self.async_set_update_error(
                 UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")
             )
-        except OntechError:
+        except Exception as err:
+            _LOGGER.error(
+                "Unexpected Ontech reader failure (%s); automatic retry scheduled",
+                type(err).__name__,
+            )
             self.async_set_update_error(
                 UpdateFailed(translation_domain=DOMAIN, translation_key="cannot_connect")
             )
@@ -115,15 +150,30 @@ class OntechCoordinator(DataUpdateCoordinator[StatusData]):
             try:
                 await self.reader
             except asyncio.CancelledError:
-                pass
+                if asyncio.current_task().cancelling():
+                    raise
+            except Exception as err:
+                _LOGGER.debug("Previous Ontech reader failed (%s)", type(err).__name__)
             self.reader = None
         await self.client.close()
 
     async def async_shutdown(self) -> None:
         """Cancel refreshes and close account-owned network resources."""
+        if self._unsub_watchdog is not None:
+            self._unsub_watchdog()
+            self._unsub_watchdog = None
         await super().async_shutdown()
+        if self._check_task is not None:
+            self._check_task.cancel()
+            try:
+                await self._check_task
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+            self._check_task = None
         await self._stop_reader()
-        await self.client.session.close()
+        # Helper-created sessions must release their reference without closing HA's connector.
+        self.client.session.detach()
 
     async def async_set_relay(self, iccid: str, index: int, on: bool) -> None:
         async with self.command_lock:

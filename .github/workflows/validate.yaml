@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        homeassistant: ["2026.10.4", "2026.11.0b3"]
+        homeassistant: ["2026.10.4", "2026.11.1"]
     steps:
       - uses: actions/checkout@v7
         with:

@@ -11,7 +11,13 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.ontech import api
-from custom_components.ontech.api import OntechAuthError, OntechClient, OntechError, websocket_url
+from custom_components.ontech.api import (
+    OntechAuthError,
+    OntechClient,
+    OntechError,
+    OntechSessionExpired,
+    websocket_url,
+)
 from custom_components.ontech.config_flow import OntechConfigFlow
 from custom_components.ontech.coordinator import OntechCoordinator
 from custom_components.ontech.model import boolean, fresh, has_relay, number, relay_command, value
@@ -161,11 +167,15 @@ async def server():
 
 @pytest.fixture
 async def client(server):
-    session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar(unsafe=True))
+    connector = aiohttp.TCPConnector()
+    session = aiohttp.ClientSession(
+        connector=connector, connector_owner=False, cookie_jar=aiohttp.CookieJar(unsafe=True)
+    )
     client = OntechClient(session, "test@example.com", "correct")
     yield client
     await client.close()
     await session.close()
+    await connector.close()
 
 
 async def test_real_http_and_websocket(client, server):
@@ -190,7 +200,7 @@ async def test_server_auth_expired(client, server):
     for _ in range(3):
         await client.receive()
     await server[1][0].send_json({"error": "-1"})
-    with pytest.raises(OntechAuthError):
+    with pytest.raises(OntechSessionExpired):
         await client.receive()
 
 
@@ -266,7 +276,7 @@ async def test_config_flow_errors(error, expected, tmp_path):
     client = MagicMock()
     client.connect = AsyncMock(side_effect=error)
     client.close = AsyncMock()
-    client.session.close = AsyncMock()
+    client.session.detach = MagicMock()
     flow = OntechConfigFlow()
     flow.hass = HomeAssistant(str(tmp_path))
     with (
@@ -276,7 +286,7 @@ async def test_config_flow_errors(error, expected, tmp_path):
     ):
         result = await flow.async_step_user({"email": "test@example.com", "password": "wrong"})
     assert result["errors"]["base"] == expected
-    client.session.close.assert_awaited_once()
+    client.session.detach.assert_called_once()
 
 
 async def test_late_discovery_and_no_duplicates(tmp_path):
@@ -460,5 +470,235 @@ async def test_initial_sync_without_names(client, tmp_path):
             data = await coordinator._async_update_data()
             assert "test-device" in data
             assert not coordinator.names
+        finally:
+            await coordinator.async_shutdown()
+
+
+async def test_watchdog_retries_failures_and_restores_entities(client, server, tmp_path, caplog):
+    import logging
+
+    entry = entry_mock()
+    tasks = []
+
+    def create_task(hass, coro, name):
+        task = asyncio.create_task(coro)
+        tasks.append(task)
+        return task
+
+    entry.async_create_background_task.side_effect = create_task
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry, client)
+    scheduled = []
+    unsubscribe = MagicMock()
+    original_connect = client.connect
+    caplog.set_level(logging.DEBUG, logger="custom_components.ontech.coordinator")
+    with patch(
+        "custom_components.ontech.coordinator.async_track_time_interval",
+        side_effect=lambda hass, cb, interval: scheduled.append(cb) or unsubscribe,
+    ):
+        try:
+            await coordinator.async_refresh()
+            relay = OntechRelay(coordinator, "test-device", 0, RELAY)
+            temperature = OntechTemperature(coordinator, "test-device", 0, SENSORS[0])
+            identity = relay.unique_id
+            assert relay.available
+            for cycle in range(3):
+                reader = coordinator.reader
+                await server[1][-1].close()
+                await asyncio.wait_for(asyncio.shield(reader), 2)
+                assert not relay.available
+                with patch.object(client, "connect", side_effect=OntechError("offline")):
+                    for _ in range(2):
+                        scheduled[0](datetime.now(UTC))
+                        await tasks[-1]
+                        assert not coordinator.last_update_success
+                        assert coordinator.reader is None
+                with patch.object(client, "connect", side_effect=original_connect):
+                    scheduled[0](datetime.now(UTC))
+                    check_task = tasks[-1]
+                    await check_task
+                assert relay.available
+                assert temperature.native_value == 21.5
+                assert relay.unique_id == identity
+                assert not client.session.closed
+                assert len([task for task in tasks if not task.done()]) == 1
+            assert len(scheduled) == 1
+            assert "connection restored" in caplog.text
+        finally:
+            await coordinator.async_shutdown()
+    unsubscribe.assert_called_once()
+    assert all(task.done() for task in tasks)
+    assert client.session.closed
+
+
+async def test_failed_reader_cannot_poison_reconnect(client, tmp_path):
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
+
+    async def broken_reader():
+        raise RuntimeError("reader failed")
+
+    coordinator.reader = asyncio.create_task(broken_reader())
+    await asyncio.sleep(0)
+    try:
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success
+        assert not coordinator.reader.done()
+    finally:
+        await coordinator.async_shutdown()
+
+
+async def test_session_expiry_reconnects_without_reauth(client, server, tmp_path):
+    entry = entry_mock()
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry, client)
+    try:
+        await coordinator.async_refresh()
+        reader = coordinator.reader
+        await server[1][-1].send_json({"error": "-1"})
+        await asyncio.wait_for(asyncio.shield(reader), 2)
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success
+        entry.async_start_reauth.assert_not_called()
+        entry.async_start_reauth_if_available.assert_not_called()
+    finally:
+        await coordinator.async_shutdown()
+
+
+async def test_receive_timeout_is_retryable(client):
+    client.ws = MagicMock()
+    client.ws.receive = AsyncMock(side_effect=TimeoutError())
+    client.ws.close = AsyncMock()
+    with pytest.raises(OntechError):
+        await client.receive()
+
+
+async def test_helper_session_cleanup_preserves_shared_connector(tmp_path):
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    from custom_components.ontech import create_client
+
+    hass = HomeAssistant(str(tmp_path))
+    connector = aiohttp.TCPConnector()
+    with patch("homeassistant.helpers.aiohttp_client._async_get_connector", return_value=connector):
+        shared = async_get_clientsession(hass)
+    with patch("homeassistant.helpers.aiohttp_client._async_get_connector", return_value=connector):
+        client = create_client(hass, {"email": "test@example.com", "password": "secret"})
+        other = create_client(hass, {"email": "other@example.com", "password": "secret"})
+    coordinator = OntechCoordinator(hass, entry_mock(), client)
+    try:
+        assert client.session.connector is connector
+        assert client.session.cookie_jar is not other.session.cookie_jar
+        with patch.object(client.session, "close", new_callable=AsyncMock) as close:
+            await coordinator.async_shutdown()
+            close.assert_not_awaited()
+        assert client.session.closed
+        assert not connector.closed
+        assert not shared.closed
+        assert not other.session.closed
+    finally:
+        other.session.detach()
+        shared.detach()
+        await connector.close()
+
+
+async def test_expiry_during_initial_sync_is_retryable(client, tmp_path):
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
+    try:
+        with patch.object(client, "receive", side_effect=OntechSessionExpired()):
+            await coordinator.async_refresh()
+        assert not coordinator.last_update_success
+        assert not coordinator._reauth_required
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success
+    finally:
+        await coordinator.async_shutdown()
+
+
+async def test_watchdog_shutdown_cancels_inflight_connect(client, tmp_path):
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
+    entered = asyncio.Event()
+
+    async def blocked_connect():
+        entered.set()
+        await asyncio.Event().wait()
+
+    with patch.object(client, "connect", side_effect=blocked_connect):
+        coordinator._watchdog(datetime.now(UTC))
+        task = coordinator._check_task
+        await entered.wait()
+        coordinator._watchdog(datetime.now(UTC))
+        assert coordinator._check_task is task
+        await coordinator.async_shutdown()
+        assert task.done()
+        assert coordinator.reader is None
+        assert coordinator._check_task is None
+
+
+async def test_login_clears_expired_cookies(client):
+    from yarl import URL
+
+    client.session.cookie_jar.update_cookies({"stale": "value"}, response_url=URL(api.BASE_URL))
+    original = client._page
+
+    async def page(method, path, **kwargs):
+        assert "stale" not in client.session.cookie_jar.filter_cookies(URL(api.BASE_URL))
+        return await original(method, path, **kwargs)
+
+    with patch.object(client, "_page", side_effect=page):
+        await client.connect()
+
+
+@pytest.mark.parametrize("failure", ["silent", "ping"])
+async def test_hung_connection_is_replaced(client, tmp_path, failure):
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
+    try:
+        await coordinator.async_refresh()
+        old_reader = coordinator.reader
+        if failure == "silent":
+            coordinator.last_received = 0
+            await coordinator.async_refresh()
+        else:
+            with patch.object(client, "send", side_effect=OntechError("ping failed")):
+                await coordinator.async_refresh()
+            assert not coordinator.last_update_success
+            assert old_reader.done()
+            await coordinator.async_refresh()
+        assert coordinator.last_update_success
+        assert old_reader.done()
+        assert coordinator.reader is not old_reader
+        assert not coordinator.reader.done()
+    finally:
+        await coordinator.async_shutdown()
+
+
+async def test_real_timer_recovers_without_manual_refresh(client, server, tmp_path):
+    from homeassistant.helpers.event import async_track_time_interval
+
+    coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
+    original_connect = client.connect
+    attempts = 0
+
+    async def connect():
+        nonlocal attempts
+        attempts += 1
+        if attempts in (2, 3):
+            raise OntechError("temporary outage")
+        await original_connect()
+
+    def fast_timer(hass, callback, interval):
+        return async_track_time_interval(hass, callback, timedelta(milliseconds=50))
+
+    with (
+        patch(
+            "custom_components.ontech.coordinator.async_track_time_interval", side_effect=fast_timer
+        ),
+        patch.object(client, "connect", side_effect=connect),
+    ):
+        try:
+            await coordinator.async_refresh()
+            await server[1][-1].close()
+            async with asyncio.timeout(3):
+                while attempts < 4 or not coordinator.last_update_success:
+                    await asyncio.sleep(0.01)
+            assert len(server[1]) == 2
+            assert not coordinator.reader.done()
         finally:
             await coordinator.async_shutdown()

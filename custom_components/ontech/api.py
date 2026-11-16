@@ -21,6 +21,10 @@ class OntechAuthError(OntechError):
     """The account needs authentication."""
 
 
+class OntechSessionExpired(OntechError):
+    """The WebSocket session needs a new HTTP login, not new credentials."""
+
+
 class LoginPage(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -79,6 +83,7 @@ class OntechClient:
 
     async def connect(self) -> None:
         await self.close()
+        self.session.cookie_jar.clear()
         try:
             async with asyncio.timeout(30):
                 page = await self._page("GET", "/login")
@@ -125,11 +130,11 @@ class OntechClient:
             if not isinstance(data, dict):
                 raise OntechError("Invalid Ontech message")
             if str(data.get("error")) == "-1":
-                raise OntechAuthError("Ontech session expired")
+                raise OntechSessionExpired("Ontech session expired")
             if str(data.get("error", "0")) not in ("0", "None", ""):
                 raise OntechError("Ontech rejected the request")
             return data
-        except aiohttp.ClientError, ValueError:
+        except aiohttp.ClientError, ValueError, TimeoutError, ConnectionError:
             raise OntechError("Invalid response from Ontech") from None
 
     async def send(self, data: dict[str, Any]) -> None:
