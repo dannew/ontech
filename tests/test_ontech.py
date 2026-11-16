@@ -653,6 +653,14 @@ async def test_hung_connection_is_replaced(client, tmp_path, failure):
         await coordinator.async_refresh()
         old_reader = coordinator.reader
         if failure == "silent":
+            waiting = asyncio.Event()
+
+            async def silent_receive():
+                waiting.set()
+                await asyncio.Event().wait()
+
+            with patch.object(client, "receive", side_effect=silent_receive):
+                await asyncio.wait_for(waiting.wait(), 2)
             coordinator.last_received = 0
             await coordinator.async_refresh()
         else:
