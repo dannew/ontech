@@ -647,7 +647,8 @@ async def test_login_clears_expired_cookies(client):
 
 
 @pytest.mark.parametrize("failure", ["silent", "ping"])
-async def test_hung_connection_is_replaced(client, tmp_path, failure):
+@pytest.mark.parametrize("uptime", [50, 1000])
+async def test_hung_connection_is_replaced(client, tmp_path, failure, uptime):
     coordinator = OntechCoordinator(HomeAssistant(str(tmp_path)), entry_mock(), client)
     try:
         await coordinator.async_refresh()
@@ -661,8 +662,10 @@ async def test_hung_connection_is_replaced(client, tmp_path, failure):
 
             with patch.object(client, "receive", side_effect=silent_receive):
                 await asyncio.wait_for(waiting.wait(), 2)
-            coordinator.last_received = 0
-            await coordinator.async_refresh()
+            coordinator.last_received = uptime - 151
+            with patch("custom_components.ontech.coordinator.time") as clock:
+                clock.monotonic.return_value = uptime
+                await coordinator.async_refresh()
         else:
             with patch.object(client, "send", side_effect=OntechError("ping failed")):
                 await coordinator.async_refresh()
